@@ -38,6 +38,8 @@
 
 #define AFL_MAIN
 
+#define ENABLE_INSTR_PRINTING_ON_FUNC_LVL 0
+
 #include "config.h"
 #include "types.h"
 #include "debug.h"
@@ -88,6 +90,10 @@ static u8   use_64bit = 0;
 
 #endif /* ^WORD_SIZE_64 */
 
+#ifdef ENABLE_INSTR_PRINTING_ON_FUNC_LVL
+int jumps_skipped = 0;
+int other_skipped = 0;
+#endif
 
 /* Examine and modify parameters to pass to 'as'. Note that the file name
    is always the last parameter passed by GCC, so we exploit this property
@@ -235,6 +241,9 @@ static void add_instrumentation(void) {
 
   u8  instr_ok = 0, skip_csect = 0, skip_next_label = 0,
       skip_intel = 0, skip_app = 0, instrument_next = 0;
+  #ifdef ENABLE_INSTR_PRINTING_ON_FUNC_LVL
+  u8 func_found = 0;
+  #endif
 
 #ifdef __APPLE__
 
@@ -246,7 +255,7 @@ static void add_instrumentation(void) {
 
     inf = fopen(input_file, "r");
     if (!inf) PFATAL("Unable to read '%s'", input_file);
-
+    
   } else inf = stdin;
 
   outfd = open(modified_file, O_WRONLY | O_EXCL | O_CREAT, 0600);
@@ -255,7 +264,7 @@ static void add_instrumentation(void) {
 
   outf = fdopen(outfd, "w");
 
-  if (!outf) PFATAL("fdopen() failed");  
+  if (!outf) PFATAL("fdopen() failed");
 
   while (fgets(line, MAX_LINE, inf)) {
 
@@ -266,9 +275,21 @@ static void add_instrumentation(void) {
 
     if (!pass_thru && !skip_intel && !skip_app && !skip_csect && instr_ok &&
         instrument_next && line[0] == '\t' && isalpha(line[1])) {
-
+      
+      #ifdef ENABLE_INSTR_PRINTING_ON_FUNC_LVL
+      unsigned int random_v = R(MAP_SIZE);
+      if (func_found) {
+        printf("%x\n", random_v);
+        fprintf(outf, use_64bit ? trampoline_fmt_64 : trampoline_fmt_32,random_v);
+        func_found = 0; // After instrumenting, reset the flag.
+      }
+      else {
+        jumps_skipped++;
+      }
+      #else
       fprintf(outf, use_64bit ? trampoline_fmt_64 : trampoline_fmt_32,
               R(MAP_SIZE));
+      #endif
 
       instrument_next = 0;
       ins_lines++;
@@ -369,13 +390,16 @@ static void add_instrumentation(void) {
        right after the branch (to instrument the not-taken path) and at the
        branch destination label (handled later on). */
 
+      // HANDLES JUMP INSTRUCTIONS
     if (line[0] == '\t') {
 
       if (line[1] == 'j' && line[2] != 'm' && R(100) < inst_ratio) {
-
+#ifdef ENABLE_INSTR_PRINTING_ON_FUNC_LVL
+        jumps_skipped++;
+#else
         fprintf(outf, use_64bit ? trampoline_fmt_64 : trampoline_fmt_32,
                 R(MAP_SIZE));
-
+#endif
         ins_lines++;
 
       }
@@ -442,6 +466,11 @@ static void add_instrumentation(void) {
       } else {
 
         /* Function label (always instrumented, deferred mode). */
+        #ifdef ENABLE_INSTR_PRINTING_ON_FUNC_LVL
+        int line_len =  strlen(line); 
+        func_found = 1;
+        printf("%.*s->", line_len -1, line);
+        #endif
 
         instrument_next = 1;
     
@@ -461,14 +490,23 @@ static void add_instrumentation(void) {
 
     if (!ins_lines) WARNF("No instrumentation targets found%s.",
                           pass_thru ? " (pass-thru mode)" : "");
+#ifdef ENABLE_INSTR_PRINTING_ON_FUNC_LVL
+    else OKF("Instrumented %u locations (%s-bit, %s mode, ratio %u%%).\n Skipped %d jumps",
+             ins_lines, use_64bit ? "64" : "32",
+             getenv("AFL_HARDEN") ? "hardened" : 
+             (sanitizer ? "ASAN/MSAN" : "non-hardened"),
+             inst_ratio, jumps_skipped);
+    // printf("--------------------\n\n The Main payload looks like: \n\n\n %s" , main_payload_64);
+    // printf("--------------------\n\n The INST payload looks like: \n\n\n ");
+    // printf(trampoline_fmt_64 , 0xffef);
+#else
     else OKF("Instrumented %u locations (%s-bit, %s mode, ratio %u%%).",
              ins_lines, use_64bit ? "64" : "32",
              getenv("AFL_HARDEN") ? "hardened" : 
              (sanitizer ? "ASAN/MSAN" : "non-hardened"),
              inst_ratio);
- 
-  }
-
+#endif
+      }
 }
 
 
@@ -488,8 +526,12 @@ int main(int argc, char** argv) {
 
   if (isatty(2) && !getenv("AFL_QUIET")) {
 
-    SAYF(cCYA "afl-as " cBRI VERSION cRST " by <lcamtuf@google.com>\n");
- 
+#ifdef ENABLE_INSTR_PRINTING_ON_FUNC_LVL
+    SAYF(cCYA "afl-as " cBRI VERSION cRST " by <lcamtuf@google.com> and modded by samad.\n\n\n");
+#else
+        SAYF(cCYA "afl-as " cBRI VERSION cRST " by <lcamtuf@google.com>\n");
+#endif
+
   } else be_quiet = 1;
 
   if (argc < 2) {
