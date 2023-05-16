@@ -32,7 +32,7 @@
 #include "android-ashmem.h"
 #define MESSAGES_TO_STDOUT
 
-#define ENABLE_SYSCALL_TARGETTING 1
+#define ENABLE_SYSCALL_TARGETTING 0
 
 
 #ifdef ENABLE_SYSCALL_TARGETTING
@@ -43,9 +43,7 @@ unsigned long num_of_guiding_graph_hashes = 0;
 float *guiding_graph_hash_weights = (void*)0;
 
 int first_bit_found = 0;
-unsigned short first_address = 0;
-unsigned short second_address = 0;
-unsigned short third_address = 0;
+unsigned short first_address[7] = {0};
 
 unsigned int gg_map[5] = {0,0,0,0,0};
 unsigned int gg_map_index = 0;
@@ -956,14 +954,14 @@ static inline u8 has_new_bits(u8 *virgin_map)
   u64 *virgin = (u64 *)virgin_map;
 
   u32 i = (MAP_SIZE >> 3);
-
+  u32 cntr = i;
 #else
 
   u32 *current = (u32 *)trace_bits;
   u32 *virgin = (u32 *)virgin_map;
 
   u32 i = (MAP_SIZE >> 2);
-
+  
 #endif /* ^WORD_SIZE_64 */
 
   u8 ret = 0;
@@ -994,16 +992,18 @@ static inline u8 has_new_bits(u8 *virgin_map)
             (cur[6] && vir[6] == 0xff) || (cur[7] && vir[7] == 0xff)) {
           ret = 2;
 #ifdef ENABLE_SYSCALL_TARGETTING
-          if (!first_bit_found) {
+          if (first_bit_found < 5) {
           // Find the exact location that was hit
+
+          u32 progress = (cntr-i-1)*8;
           u32 j;
           for (j = 0; j < 8; j++) {
             if (cur[j] && vir[j] == 0xff) {
-              first_bit_found = 1;
-              first_address = (i * 8) + j;
+              first_address[first_bit_found] = progress + j;
+              first_bit_found++;
               break;
-              }
             }
+          }
           }
 #endif
         }
@@ -1344,7 +1344,8 @@ static void update_bitmap_score(struct queue_entry *q)
   #endif
 
   /* For every byte set in trace_bits[], see if there is a previous winner,
-     and how it compares to us. */
+     and how it compares to us.
+  */
 
   for (i = 0; i < MAP_SIZE; i++)
 
@@ -3378,8 +3379,8 @@ static u8 save_if_interesting(char **argv, void *mem, u32 len, u8 fault)
       u8 *current = (u8 *)trace_bits;
       u8 *virgin = (u8 *)virgin_bits;
 
-      for (u8 gg_idx=0; gg_idx < num_of_guiding_graph_hashes; gg_idx++) {
-        u32 index = guiding_graph_hashes[gg_idx];
+      for (u16 gg_idx=0; gg_idx < num_of_guiding_graph_hashes; gg_idx++) {
+        u16 index = guiding_graph_hashes[gg_idx];
         // printf("index: %d\n", index);
         if ( current[index] & virgin[index] ) {
           prefrence_weight = guiding_graph_hash_weights[gg_idx];
@@ -4501,9 +4502,17 @@ static void show_stats(void)
   }
   else
   {
-
+#ifdef ENABLE_SYSCALL_TARGETTING
     sprintf(tmp, "%s/%s (%0.02f%%)HC:(%d)", DI(stage_cur), DI(stage_max),
-            ((double)stage_cur) * 100 / stage_max, number_of_branch_hits);
+#else
+    sprintf(tmp, "%s/%s (%0.02f%%)", DI(stage_cur), DI(stage_max),
+#endif
+            ((double)stage_cur) * 100 / stage_max
+#ifdef ENABLE_SYSCALL_TARGETTING
+            ,number_of_branch_hits);
+#else
+            );
+#endif
   }
 
   SAYF(bV bSTOP " stage execs : " cRST "%-21s " bSTG bV bSTOP, tmp);
@@ -8873,15 +8882,21 @@ stop_fuzzing:
   ck_free(sync_id);
 
   alloc_report();
-
+#ifdef ENABLE_SYSCALL_TARGETTING
   OKF("We're done here. Have a nice day! HC: %d\n", number_of_branch_hits);
   // Print gg_map
-  for (int i = 0; i <= gg_map_index; i++)
-  {
-      printf("%d: %d\n", i, gg_map[i]);
-  }
+  // for (int i = 0; i <= gg_map_index; i++)
+  // {
+  //     printf("%d: %d\n", i, gg_map[i]);
+  // }
 
-  printf("The first hit was: %d\n", first_address);
+  // printf("The first hit was: %d\n", first_address);
+
+  // for (int i = 0; i < first_bit_found; i++)
+  // {
+  //   printf("%d Hit was -> %d\n", i, first_address[i]);
+  // }
+#endif
 
   exit(0);
 }
