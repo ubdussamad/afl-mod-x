@@ -3370,7 +3370,7 @@ static u8 save_if_interesting(char **argv, void *mem, u32 len, u8 fault)
     /* Keep only if there are new bits in the map, add to queue for
        future fuzzing, etc. */
 #ifdef ENABLE_SYSCALL_TARGETTING
-      // Kind of the main payload.
+      // Kind of the main payload. Stuff
       // printf("num_of_guiding_graph_hashes: %d\n", num_of_guiding_graph_hashes);
 
       // Very important metric to watch
