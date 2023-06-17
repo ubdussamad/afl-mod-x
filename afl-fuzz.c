@@ -1338,7 +1338,7 @@ static void update_bitmap_score(struct queue_entry *q)
   u32 i;
   #ifdef ENABLE_SYSCALL_TARGETTING // DOUBLE CHECK
   u64 ff_tmp = (double) (q->exec_us * q->len);
-  u64 fav_factor = (u32) (ff_tmp * q->branch_weight);
+  u64 fav_factor = (u32) (ff_tmp * ( 1 + q->branch_weight) );
   #else
   u64 fav_factor = q->exec_us * q->len;
   #endif
@@ -1453,14 +1453,14 @@ EXP_ST void setup_shm(void)
 {
 
   u8 *shm_str;
-
+  
   if (!in_bitmap)
     memset(virgin_bits, 255, MAP_SIZE);
 
   memset(virgin_tmout, 255, MAP_SIZE);
   memset(virgin_crash, 255, MAP_SIZE);
 
-  shm_id = shmget(IPC_PRIVATE, MAP_SIZE, IPC_CREAT | IPC_EXCL | 0600);
+  shm_id = shmget(/*IPC_PRIVATE*/ 69, MAP_SIZE, IPC_CREAT /*| IPC_EXCL |*/ | 0600);
 
   if (shm_id < 0)
     PFATAL("shmget() failed");
@@ -1476,6 +1476,10 @@ EXP_ST void setup_shm(void)
 
   if (!dumb_mode)
     setenv(SHM_ENV_VAR, shm_str, 1);
+  
+  printf("SHM Address is: %s\n", shm_str);
+  // Wait fo user to press return 
+  getchar();
 
   ck_free(shm_str);
 
@@ -3374,8 +3378,8 @@ static u8 save_if_interesting(char **argv, void *mem, u32 len, u8 fault)
       // printf("num_of_guiding_graph_hashes: %d\n", num_of_guiding_graph_hashes);
 
       // Very important metric to watch
-      float prefrence_weight = 0.4;
-      if (num_of_guiding_graph_hashes!=0) { 
+      float prefrence_weight = 1.0;
+      if (num_of_guiding_graph_hashes!=0) {
       u8 *current = (u8 *)trace_bits;
       u8 *virgin = (u8 *)virgin_bits;
 
@@ -8890,12 +8894,12 @@ stop_fuzzing:
   //     printf("%d: %d\n", i, gg_map[i]);
   // }
 
-  // printf("The first hit was: %d\n", first_address);
+  printf("The first hit was: %d\n", first_address);
 
-  // for (int i = 0; i < first_bit_found; i++)
-  // {
-  //   printf("%d Hit was -> %d\n", i, first_address[i]);
-  // }
+  for (int i = 0; i < first_bit_found; i++)
+  {
+    printf("%d Hit was -> %d\n", i, first_address[i]);
+  }
 #endif
 
   exit(0);
